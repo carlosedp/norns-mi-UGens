@@ -1,0 +1,68 @@
+name: build norns mi-UGens
+
+# Tag pushes (v*) build the defaults below and publish a release. The norns
+# installer script (mi-ugens-install.lua) downloads the release asset with the
+# fixed name mi-UGens-norns.tar.gz from the latest release.
+#
+# Manual runs (Actions > Run workflow) can override everything and only upload
+# a workflow artifact.
+
+on:
+  workflow_dispatch:
+    inputs:
+      repo:
+        description: mi-UGens repository
+        default: https://github.com/v7b1/mi-UGens
+      ref:
+        description: branch, tag or commit
+        default: main
+      prs:
+        description: space-separated PR numbers to merge ("none" for no PRs)
+        default: "24"
+      sc_version:
+        description: SuperCollider tag for headers
+        default: Version-3.12.2
+  push:
+    tags: ['v*']
+
+env:
+  # Defaults for tag builds. Drop "24" once MiBeads is merged upstream, or point
+  # DEFAULT_REPO at your fork.
+  DEFAULT_REPO: https://github.com/v7b1/mi-UGens
+  DEFAULT_REF: main
+  DEFAULT_PRS: "24"
+  DEFAULT_SC_VERSION: Version-3.12.2
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # create releases
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        env:
+          REPO: ${{ inputs.repo || env.DEFAULT_REPO }}
+          REF: ${{ inputs.ref || env.DEFAULT_REF }}
+          PRS: ${{ github.event_name == 'workflow_dispatch' && inputs.prs || env.DEFAULT_PRS }}
+          SC_VERSION: ${{ inputs.sc_version || env.DEFAULT_SC_VERSION }}
+        run: |
+          args=(--engine docker --repo "$REPO" --ref "$REF" --sc-version "$SC_VERSION")
+          for pr in $PRS; do [[ $pr == none ]] || args+=(--pr "$pr"); done
+          ./build.sh "${args[@]}"
+          cp dist/mi-UGens-norns-*.tar.gz dist/mi-UGens-norns.tar.gz
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mi-UGens-norns
+          path: dist/mi-UGens-norns-*.tar.gz
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/mi-UGens-norns-*.tar.gz
+            dist/mi-UGens-norns.tar.gz
+          body_path: work/out/mi-UGens/BUILDINFO
