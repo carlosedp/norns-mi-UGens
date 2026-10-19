@@ -1,8 +1,0 @@
-{
-  "servers": {
-    "norns-mi-UGens-metals": {
-      "url": "http://localhost:58680/mcp",
-      "type": "http"
-    }
-  }
-}

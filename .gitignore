@@ -1,2 +1,5 @@
 /work/
 /dist/
+/.vscode/
+/.metals/
+/release-notes.md

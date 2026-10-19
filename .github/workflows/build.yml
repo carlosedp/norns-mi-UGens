@@ -51,12 +51,35 @@ jobs:
           args=(--engine docker --repo "$REPO" --ref "$REF" --sc-version "$SC_VERSION")
           for pr in $PRS; do [[ $pr == none ]] || args+=(--pr "$pr"); done
           ./build.sh "${args[@]}"
+          # a release's assets are named after its tag (v1.0.0), not the upstream
+          # mi-UGens version, which BUILDINFO inside records; plus the fixed name that
+          # installers fetch from the latest release
+          if [[ $GITHUB_REF == refs/tags/* ]]; then
+            mv dist/mi-UGens-norns-*.tar.gz "dist/mi-UGens-norns-${GITHUB_REF_NAME}.tar.gz"
+          fi
           cp dist/mi-UGens-norns-*.tar.gz dist/mi-UGens-norns.tar.gz
 
       - uses: actions/upload-artifact@v4
         with:
           name: mi-UGens-norns
           path: dist/mi-UGens-norns-*.tar.gz
+
+      - name: Release notes
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          {
+            echo "Mutable Instruments modules for monome norns and norns shield: Beads, Braids, Clouds,"
+            echo "Elements, Grids, Mu, Omi, Plaits, Rings, Ripples, Tides, Verb and Warps."
+            echo
+            echo "**To install:** run the [mi-ugens-install](https://github.com/${GITHUB_REPOSITORY}#install) script on your norns"
+            echo "and press K3, or let a script that needs them install them for you. Then SYSTEM > RESTART."
+            echo "Other ways (ssh, local file) are in the [README](https://github.com/${GITHUB_REPOSITORY}#install)."
+            echo
+            echo "### Build"
+            echo '```'
+            cat work/out/mi-UGens/BUILDINFO
+            echo '```'
+          } > release-notes.md
 
       - name: Publish release
         if: startsWith(github.ref, 'refs/tags/')
@@ -65,4 +88,4 @@ jobs:
           files: |
             dist/mi-UGens-norns-*.tar.gz
             dist/mi-UGens-norns.tar.gz
-          body_path: work/out/mi-UGens/BUILDINFO
+          body_path: release-notes.md
