@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mi-UGens in the browser</title>
+<style>
+  :root { --bg: #f6f5f1; --fg: #222; --dim: #666; --line: #ccc; --accent: #2a6f5a; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #161616; --fg: #e8e6e0; --dim: #999; --line: #333; --accent: #6fc2a5; } }
+  body { background: var(--bg); color: var(--fg); font: 15px/1.5 system-ui, sans-serif; margin: 0 auto; max-width: 42rem; padding: 1.5rem 16px; }
+  h1 { font-size: 1.3rem; margin: 0 0 .25rem; }
+  p { color: var(--dim); margin: 0 0 1rem; }
+  fieldset { border: 1px solid var(--line); border-radius: 6px; margin: 0 0 1rem; padding: .75rem 1rem; }
+  legend { font-weight: 600; padding: 0 .3rem; }
+  label { display: flex; gap: .6rem; align-items: center; margin: .3rem 0; }
+  label span { width: 6.5rem; color: var(--dim); }
+  input[type=range] { flex: 1; }
+  button { font: inherit; padding: .35rem .9rem; border: 1px solid var(--accent); background: none; color: var(--accent); border-radius: 4px; cursor: pointer; }
+  button[aria-pressed=true] { background: var(--accent); color: var(--bg); }
+  #status { font-family: ui-monospace, monospace; font-size: 13px; color: var(--dim); white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>mi-UGens in the browser</h1>
+<p>The SuperCollider mi-UGens compiled to WebAssembly, running in an AudioWorklet.
+  A Plaits sequence plays through the effect you pick.</p>
+
+<p><button id="start">Start sound</button></p>
+
+<fieldset>
+  <legend>Plaits</legend>
+  <label><span>engine</span><input id="engine" type="range" min="0" max="23" step="1" value="12"><output></output></label>
+  <label><span>harmonics</span><input id="harm" type="range" min="0" max="1" step="0.01" value="0.5"><output></output></label>
+  <label><span>timbre</span><input id="timbre" type="range" min="0" max="1" step="0.01" value="0.5"><output></output></label>
+  <label><span>morph</span><input id="morph" type="range" min="0" max="1" step="0.01" value="0.5"><output></output></label>
+  <label><span>decay</span><input id="decay" type="range" min="0" max="1" step="0.01" value="0.5"><output></output></label>
+</fieldset>
+
+<fieldset>
+  <legend>Through</legend>
+  <label><span>effect</span><select id="fx">
+    <option value="">none</option><option>MiRings</option><option>MiRipples</option>
+    <option selected>MiClouds</option><option>MiBeads</option><option>MiVerb</option>
+  </select></label>
+  <label><span>amount</span><input id="amount" type="range" min="0" max="1" step="0.01" value="0.6"><output></output></label>
+</fieldset>
+
+<fieldset>
+  <legend>Elements</legend>
+  <button id="bow" aria-pressed="false">Bow a drone</button>
+</fieldset>
+
+<div id="status"></div>
+
+<script src="mi-ugens-node.js"></script>
+<script>
+const $ = s => document.querySelector(s);
+const log = s => { $("#status").textContent += s + "\n"; };
+for (const r of document.querySelectorAll("input[type=range]")) {
+  const show = () => { r.nextElementSibling.textContent = r.value; };
+  r.addEventListener("input", show); show();
+}
+
+let A = null;
+async function start() {
+  const ctx = new AudioContext({ sampleRate: 48000 });
+  const t0 = performance.now();
+  const mi = await MiUGens.load(ctx, "", ["MiPlaits", "MiRings", "MiRipples", "MiClouds", "MiBeads", "MiVerb", "MiElements"]);
+  log(`loaded 7 UGens in ${Math.round(performance.now() - t0)} ms, ${ctx.sampleRate} Hz`);
+  const out = ctx.createGain(); out.gain.value = 0.6; out.connect(ctx.destination);
+  const c = k => ({ rate: "control", value: +$("#" + k).value, lag: 0.05 });
+  const plaits = mi.node("MiPlaits", { engine: { rate: "control", value: +$("#engine").value }, harm: c("harm"),
+    timbre: c("timbre"), morph: c("morph"), decay: c("decay"), trigger: { rate: "control" } });
+  const split = ctx.createChannelSplitter(2); plaits.connect(split);  // Plaits' main output, then aux
+  const voice = ctx.createGain(); voice.gain.value = 0.5; split.connect(voice, 0);
+  A = { ctx, mi, out, plaits, voice, fx: null, elements: null };
+  for (const k of ["engine", "harm", "timbre", "morph", "decay"])
+    $("#" + k).addEventListener("input", e => plaits.set({ [k]: +e.target.value }));
+  $("#fx").addEventListener("change", setFx);
+  $("#amount").addEventListener("input", setAmount);
+  setFx();
+  const notes = [48, 55, 58, 62, 67, 60, 63, 70];
+  let i = 0;
+  setInterval(() => { plaits.set({ pitch: notes[i++ % notes.length] }); plaits.trig({ trigger: 1 }); }, 450);
+}
+
+function setFx() {
+  const { ctx, mi, voice, out } = A, name = $("#fx").value, a = +$("#amount").value;
+  if (A.fx) { voice.disconnect(); A.fx.free(); A.fx = null; }
+  if (!name) { voice.connect(out); return; }
+  const ctl = (v, lag = 0.1) => ({ rate: "control", value: v, lag });
+  let fx;
+  if (name === "MiRings") fx = mi.node(name, { in: { rate: "audio" }, pit: ctl(36, 0), struct: ctl(a), bright: 0.5, damp: 0.7 });
+  if (name === "MiRipples") fx = mi.node(name, { in: { rate: "audio" }, cf: ctl(a), reson: 0.6 });
+  if (name === "MiClouds") fx = mi.node(name, { dens: ctl(a), size: 0.4, tex: 0.5, drywet: 0.6, rvb: 0.3, fb: 0.2 });
+  if (name === "MiBeads") fx = mi.node(name, { density: ctl(a), drywet: 0.6, rvb: 0.35, size: 0.5, time: 0.5 });
+  if (name === "MiVerb") fx = mi.node(name, { time: ctl(0.5 + a * 0.5), drywet: 0.5 });
+  if (name === "MiClouds" || name === "MiBeads" || name === "MiVerb") {
+    const m = ctx.createChannelMerger(2); voice.connect(m, 0, 0); voice.connect(m, 0, 1); m.connect(fx);
+  } else voice.connect(fx);
+  fx.connect(out);
+  A.fx = fx;
+}
+
+function setAmount() {
+  if (!A.fx) return;
+  const a = +$("#amount").value, name = $("#fx").value;
+  const key = { MiRings: "struct", MiRipples: "cf", MiClouds: "dens", MiBeads: "density", MiVerb: "time" }[name];
+  A.fx.set({ [key]: name === "MiVerb" ? 0.5 + a * 0.5 : a });
+}
+
+$("#start").addEventListener("click", async e => {
+  if (!A) { e.target.disabled = true; await start(); e.target.disabled = false; }
+  if (A.ctx.state === "running") { await A.ctx.suspend(); e.target.textContent = "Start sound"; }
+  else { await A.ctx.resume(); e.target.textContent = "Mute"; }
+});
+
+$("#bow").addEventListener("click", e => {
+  if (!A) return;
+  if (A.elements) { A.elements.free(); A.elements = null; e.target.setAttribute("aria-pressed", "false"); return; }
+  const el = A.mi.node("MiElements", { gate: 1, pit: 36, bow_level: 0.7, blow_level: 0.2, strike_level: 0, model: 1,
+    contour: 0.8, space: 0.6 });
+  const g = A.ctx.createGain(); g.gain.value = 0.7; el.connect(g); g.connect(A.out);
+  A.elements = el;
+  e.target.setAttribute("aria-pressed", "true");
+});
+</script>
+</body>
+</html>

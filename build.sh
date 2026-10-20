@@ -20,6 +20,8 @@ DIST=$HERE/dist
 NATIVE=0
 JOBS=
 IMAGE=norns-mi-ugens-builder
+WASM=0
+EMSDK_IMAGE=docker.io/emscripten/emsdk:4.0.10
 ENGINE=${CONTAINER_ENGINE:-}
 
 usage() {
@@ -38,6 +40,8 @@ Source selection:
 Build:
   --native           build with the local toolchain (on a norns / Pi) instead
                      of the cross-compile container
+  --wasm             build WebAssembly for browsers instead (see wasm/README.md),
+                     in the $EMSDK_IMAGE container
   --jobs N           parallel build jobs (default: all cores)
   --engine NAME      container engine: podman or docker (default: auto)
   --work DIR         scratch dir for sources and build tree (default: ./work)
@@ -46,6 +50,8 @@ Build:
 
 Output: \$DIST/mi-UGens-norns-<version>.tar.gz containing a mi-UGens/ folder to
 copy into ~/.local/share/SuperCollider/Extensions/ on norns (see deploy.sh).
+With --wasm: \$DIST/mi-UGens-wasm-<version>.tar.gz, a mi-UGens-wasm/ folder of
+.wasm files and the JavaScript that runs them (demo.html plays them).
 EOF
 }
 
@@ -57,6 +63,7 @@ while (($#)); do
     --pr-remote) PR_REMOTE=$2; shift ;;
     --sc-version) SC_VERSION=$2; shift ;;
     --native) NATIVE=1 ;;
+    --wasm) WASM=1 ;;
     --jobs) JOBS=$2; shift ;;
     --engine) ENGINE=$2; shift ;;
     --work) WORK=$(mkdir -p "$2" && cd "$2" && pwd); shift ;;
@@ -102,6 +109,46 @@ VERSION=$(git -C "$SRC" describe --tags --always)
 
 # --- build -------------------------------------------------------------------
 
+pick_engine() {
+  if [[ -z $ENGINE ]]; then
+    if command -v podman >/dev/null; then ENGINE=podman
+    elif command -v docker >/dev/null; then ENGINE=docker
+    else echo "need podman or docker (or use --native)" >&2; exit 1
+    fi
+  fi
+  # Keep output files owned by the calling user.
+  if [[ $ENGINE == podman ]]; then user_args=(--userns=keep-id)
+  else user_args=(--user "$(id -u):$(id -g)")
+  fi
+}
+
+if ((WASM)); then
+  pick_engine
+  OUT=$WORK/out-wasm
+  log "Building WebAssembly ($EMSDK_IMAGE)"
+  "$ENGINE" run --rm "${user_args[@]}" -v "$WORK:/work" -v "$HERE/wasm:/wasm:ro" "$EMSDK_IMAGE" \
+    /wasm/compile.sh /work/mi-UGens /wasm /work/build-wasm /work/out-wasm "${JOBS:-$(nproc)}"
+  log "Testing (node)"
+  node "$HERE/wasm/test.mjs" "$OUT"
+  rm -rf "$OUT/wav"
+  cat > "$OUT/BUILDINFO" <<EOF
+repo:       $REPO
+ref:        $REF
+commit:     $(git -C "$SRC" rev-parse HEAD)
+prs:        ${PRS[*]:-none}
+wrapper:    norns-mi-UGens $(git -C "$HERE" describe --tags --always --dirty) (wasm/)
+built:      $(date -u +%Y-%m-%dT%H:%M:%SZ) (wasm, $EMSDK_IMAGE)
+EOF
+  TARBALL=$DIST/mi-UGens-wasm-$VERSION.tar.gz
+  rm -rf "$WORK/pkg-wasm" && mkdir -p "$WORK/pkg-wasm" && cp -r "$OUT" "$WORK/pkg-wasm/mi-UGens-wasm"
+  tar -C "$WORK/pkg-wasm" -czf "$TARBALL" mi-UGens-wasm
+  log "Done"
+  echo "Files:   $OUT"
+  echo "Package: $TARBALL"
+  echo "Try it:  (cd $OUT && python3 -m http.server 8000), then open http://localhost:8000/demo.html"
+  exit 0
+fi
+
 rm -rf "$WORK/out"
 
 if ((NATIVE)); then
@@ -109,20 +156,9 @@ if ((NATIVE)); then
   "$HERE/scripts/compile.sh" "$SRC" "$SC_SRC" "$WORK/build" "$WORK/out" "" "${JOBS:-$(nproc)}"
   "$HERE/scripts/verify.sh" "$WORK/out/mi-UGens"
 else
-  if [[ -z $ENGINE ]]; then
-    if command -v podman >/dev/null; then ENGINE=podman
-    elif command -v docker >/dev/null; then ENGINE=docker
-    else echo "need podman or docker (or use --native)" >&2; exit 1
-    fi
-  fi
-
+  pick_engine
   log "Preparing build image ($ENGINE)"
   "$ENGINE" build --quiet -t "$IMAGE" -f "$HERE/Containerfile" "$HERE" >/dev/null
-
-  # Keep output files owned by the calling user.
-  if [[ $ENGINE == podman ]]; then user_args=(--userns=keep-id)
-  else user_args=(--user "$(id -u):$(id -g)")
-  fi
 
   log "Cross-compiling for norns (armhf)"
   "$ENGINE" run --rm "${user_args[@]}" \

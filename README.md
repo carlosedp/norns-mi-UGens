@@ -91,6 +91,12 @@ like Rings or Warps fed by a send, or MiVerb.
 For a tour of norns scripts and mods around these modules, see
 [Mods_and_scripts.md](Mods_and_scripts.md).
 
+**In a web page:** each release also carries `mi-UGens-wasm.tar.gz`, seven of them (Plaits,
+Rings, Elements, Clouds, Beads, Ripples, Verb) built as WebAssembly: the same code, playing in
+any modern browser in an AudioWorklet, with no dependencies. Handy for a demo of a norns script,
+a web instrument, or tuning a SynthDef without the device.
+[wasm/README.md](wasm/README.md) shows how to use them.
+
 ## Things to keep in mind
 
 - **CPU.** The CM3 in norns is a 1.2 GHz quad-core. Elements, Rings and Beads are heavy: a script
@@ -130,7 +136,8 @@ The [workflow](.github/workflows/build.yml) runs the same script. Run it from th
 a repo, ref and PRs, and download the tarball from the run's artifacts. Pushing a `v*` tag builds
 the defaults in the workflow (currently upstream + PR 24) and publishes a release, with the
 tarball under the tag's name (`mi-UGens-norns-v1.0.0.tar.gz`) and under the fixed name
-`mi-UGens-norns.tar.gz` that installers fetch from the latest release.
+`mi-UGens-norns.tar.gz` that installers fetch from the latest release. The WebAssembly build
+goes alongside, as `mi-UGens-wasm-v1.0.0.tar.gz` and `mi-UGens-wasm.tar.gz`.
 
 ### How it works
 
@@ -153,6 +160,14 @@ tarball under the tag's name (`mi-UGens-norns-v1.0.0.tar.gz`) and under the fixe
 `./build.sh --native` skips the container and uses the local compiler, like okyeron's original
 `linux-build.sh`. mi-UGens needs CMake ≥ 3.19 and Buster ships 3.13, so first run
 `pip3 install --user cmake`. The cross build is much faster.
+
+### In a web browser
+
+`./build.sh --wasm --pr 24` builds seven of them (Plaits, Rings, Ripples, Clouds, Beads, Verb,
+Elements) as WebAssembly instead, to play in a web page, in an AudioWorklet: the same code a
+norns runs, not an imitation. `work/out-wasm/demo.html` plays them, and
+[wasm/README.md](wasm/README.md) has the details: how it's built, the JavaScript API, and how
+to turn a SynthDef into nodes.
 
 ## Credits and license
 
