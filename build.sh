@@ -21,6 +21,7 @@ NATIVE=0
 JOBS=
 IMAGE=norns-mi-ugens-builder
 WASM=0
+LIB=0
 EMSDK_IMAGE=docker.io/emscripten/emsdk:4.0.10
 ENGINE=${CONTAINER_ENGINE:-}
 
@@ -42,6 +43,10 @@ Build:
                      of the cross-compile container
   --wasm             build WebAssembly for browsers instead (see wasm/README.md),
                      in the $EMSDK_IMAGE container
+  --lib              build native shared libraries for this machine instead, for
+                     programs that aren't SuperCollider (see native/README.md):
+                     Linux, macOS (universal) or Windows (MSVC, from Git Bash);
+                     needs cmake and a C++17 compiler
   --jobs N           parallel build jobs (default: all cores)
   --engine NAME      container engine: podman or docker (default: auto)
   --work DIR         scratch dir for sources and build tree (default: ./work)
@@ -52,6 +57,8 @@ Output: \$DIST/mi-UGens-norns-<version>.tar.gz containing a mi-UGens/ folder to
 copy into ~/.local/share/SuperCollider/Extensions/ on norns (see deploy.sh).
 With --wasm: \$DIST/mi-UGens-wasm-<version>.tar.gz, a mi-UGens-wasm/ folder of
 .wasm files and the JavaScript that runs them (demo.html plays them).
+With --lib: \$DIST/mi-UGens-native-<os>-<arch>-<version>.tar.gz, a mi-UGens-native/
+folder with lib/ (one library per UGen) and mi_ugens.hpp, the header that loads them.
 EOF
 }
 
@@ -64,6 +71,7 @@ while (($#)); do
     --sc-version) SC_VERSION=$2; shift ;;
     --native) NATIVE=1 ;;
     --wasm) WASM=1 ;;
+    --lib) LIB=1 ;;
     --jobs) JOBS=$2; shift ;;
     --engine) ENGINE=$2; shift ;;
     --work) WORK=$(mkdir -p "$2" && cd "$2" && pwd); shift ;;
@@ -75,6 +83,7 @@ while (($#)); do
 done
 
 log() { printf '\n\033[1;34m==> %s\033[0m\n' "$*"; }
+cores() { nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4; }
 
 SRC=$WORK/mi-UGens
 SC_SRC=$WORK/supercollider-$SC_VERSION
@@ -98,7 +107,7 @@ for pr in "${PRS[@]}"; do
 done
 git -C "$SRC" submodule update --quiet --init --recursive
 
-if [[ ! -d $SC_SRC ]]; then
+if [[ ! -d $SC_SRC ]] && ((!LIB)); then  # --lib uses the stand-in headers only
   log "Fetching SuperCollider headers ($SC_VERSION)"
   git -c advice.detachedHead=false clone --quiet --depth 1 --branch "$SC_VERSION" \
     https://github.com/supercollider/supercollider "$SC_SRC"
@@ -127,7 +136,7 @@ if ((WASM)); then
   OUT=$WORK/out-wasm
   log "Building WebAssembly ($EMSDK_IMAGE)"
   "$ENGINE" run --rm "${user_args[@]}" -v "$WORK:/work" -v "$HERE/wasm:/wasm:ro" "$EMSDK_IMAGE" \
-    /wasm/compile.sh /work/mi-UGens /wasm /work/build-wasm /work/out-wasm "${JOBS:-$(nproc)}"
+    /wasm/compile.sh /work/mi-UGens /wasm /work/build-wasm /work/out-wasm "${JOBS:-$(cores)}"
   log "Testing (node)"
   node "$HERE/wasm/test.mjs" "$OUT"
   rm -rf "$OUT/wav"
@@ -149,11 +158,48 @@ EOF
   exit 0
 fi
 
+if ((LIB)); then
+  case $(uname -s) in
+    Linux) OS=linux; ARCH=$(uname -m) ;;
+    Darwin) OS=macos; ARCH=universal ;;
+    MINGW*|MSYS*|CYGWIN*) OS=windows; ARCH=x86_64 ;;
+    *) echo "--lib: unknown system $(uname -s)" >&2; exit 1 ;;
+  esac
+  BUILD=$WORK/build-native
+  PKG=$WORK/out-native
+  OUT=$PKG/mi-UGens-native
+  log "Building native libraries ($OS-$ARCH)"
+  rm -rf "$BUILD" "$PKG"
+  cmake -S "$HERE/native" -B "$BUILD" -DCMAKE_BUILD_TYPE=Release -DMI_SRC="$SRC" >/dev/null
+  cmake --build "$BUILD" --config Release -j "${JOBS:-$(cores)}"
+  log "Testing"
+  "$BUILD/mi-test" "$BUILD/lib"
+  mkdir -p "$OUT/lib"
+  for f in "$BUILD"/lib/Mi*; do
+    case $f in *.so|*.dylib|*.dll) cp "$f" "$OUT/lib/" ;; esac
+  done
+  cp "$HERE/native/mi_ugens.hpp" "$HERE/native/README.md" "$OUT/"
+  cat > "$OUT/BUILDINFO" <<EOF
+repo:       $REPO
+ref:        $REF
+commit:     $(git -C "$SRC" rev-parse HEAD)
+prs:        ${PRS[*]:-none}
+wrapper:    norns-mi-UGens $(git -C "$HERE" describe --tags --always --dirty) (native/)
+built:      $(date -u +%Y-%m-%dT%H:%M:%SZ) ($OS-$ARCH)
+EOF
+  TARBALL=$DIST/mi-UGens-native-$OS-$ARCH-$VERSION.tar.gz
+  tar -C "$PKG" -czf "$TARBALL" mi-UGens-native
+  log "Done"
+  echo "Libraries: $(cd "$OUT/lib" && ls | tr '\n' ' ')"
+  echo "Package:   $TARBALL"
+  exit 0
+fi
+
 rm -rf "$WORK/out"
 
 if ((NATIVE)); then
   log "Building natively ($(uname -m))"
-  "$HERE/scripts/compile.sh" "$SRC" "$SC_SRC" "$WORK/build" "$WORK/out" "" "${JOBS:-$(nproc)}"
+  "$HERE/scripts/compile.sh" "$SRC" "$SC_SRC" "$WORK/build" "$WORK/out" "" "${JOBS:-$(cores)}"
   "$HERE/scripts/verify.sh" "$WORK/out/mi-UGens"
 else
   pick_engine

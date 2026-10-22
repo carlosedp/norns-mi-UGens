@@ -3,7 +3,8 @@ name: build norns mi-UGens
 # Tag pushes (v*) build the defaults below and publish a release. The norns
 # installer script (mi-ugens-install.lua) downloads the release asset with the
 # fixed name mi-UGens-norns.tar.gz from the latest release; mi-UGens-wasm.tar.gz
-# is the WebAssembly build for web pages.
+# is the WebAssembly build for web pages, and mi-UGens-native-<os>-<arch>.tar.gz
+# the native libraries for plugins and apps (one job per platform, below).
 #
 # Manual runs (Actions > Run workflow) can override everything and only upload
 # a workflow artifact.
@@ -35,7 +36,51 @@ env:
   DEFAULT_SC_VERSION: Version-3.12.2
 
 jobs:
+  # native libraries (native/README.md), built and tested on each platform
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - plat: linux-x86_64
+            os: ubuntu-22.04   # the oldest runner: what it links against (glibc) is what users need
+          - plat: macos-universal
+            os: macos-14
+          - plat: windows-x86_64
+            os: windows-2022
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Keep line endings (build.sh runs in Git Bash on Windows)
+        run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@v4
+
+      - name: Build
+        env:
+          REPO: ${{ inputs.repo || env.DEFAULT_REPO }}
+          REF: ${{ inputs.ref || env.DEFAULT_REF }}
+          PRS: ${{ github.event_name == 'workflow_dispatch' && inputs.prs || env.DEFAULT_PRS }}
+        run: |
+          args=(--lib --repo "$REPO" --ref "$REF")
+          for pr in $PRS; do [[ $pr == none ]] || args+=(--pr "$pr"); done
+          ./build.sh "${args[@]}"
+          # named after the tag on a release, plus the fixed name pages and plugins fetch
+          kind=native-${{ matrix.plat }}
+          if [[ $GITHUB_REF == refs/tags/* ]]; then
+            mv dist/mi-UGens-$kind-*.tar.gz "dist/mi-UGens-$kind-${GITHUB_REF_NAME}.tar.gz"
+          fi
+          cp dist/mi-UGens-$kind-*.tar.gz dist/mi-UGens-$kind.tar.gz
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mi-UGens-native-${{ matrix.plat }}
+          path: dist/mi-UGens-native-*.tar.gz
+
   build:
+    needs: native
     runs-on: ubuntu-latest
     permissions:
       contents: write   # create releases
@@ -77,6 +122,13 @@ jobs:
           name: mi-UGens-wasm
           path: dist/mi-UGens-wasm-*.tar.gz
 
+      - uses: actions/download-artifact@v4   # the native jobs' packages, for the release
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          pattern: mi-UGens-native-*
+          path: dist
+          merge-multiple: true
+
       - name: Release notes
         if: startsWith(github.ref, 'refs/tags/')
         run: |
@@ -90,6 +142,9 @@ jobs:
             echo
             echo "**For web pages:** \`mi-UGens-wasm.tar.gz\` has Plaits, Rings, Elements, Clouds, Beads, Ripples and Verb"
             echo "built as WebAssembly, to play in an AudioWorklet. See [wasm/README.md](https://github.com/${GITHUB_REPOSITORY}/blob/${GITHUB_REF_NAME}/wasm/README.md)."
+            echo
+            echo "**For plugins and apps:** \`mi-UGens-native-<os>-<arch>.tar.gz\` has the same seven as native libraries for Linux,"
+            echo "macOS (universal) and Windows, with a header-only C++ loader. See [native/README.md](https://github.com/${GITHUB_REPOSITORY}/blob/${GITHUB_REF_NAME}/native/README.md)."
             echo
             echo "### Build"
             echo '```'
@@ -106,4 +161,5 @@ jobs:
             dist/mi-UGens-norns.tar.gz
             dist/mi-UGens-wasm-*.tar.gz
             dist/mi-UGens-wasm.tar.gz
+            dist/mi-UGens-native-*.tar.gz
           body_path: release-notes.md
