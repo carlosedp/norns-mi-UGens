@@ -6,14 +6,25 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
-#include <filesystem>
 #include <fstream>
 #include <functional>
 #include <random>
 
 #include "mi_ugens.hpp"
 
-namespace fs = std::filesystem;
+#if defined(_WIN32)
+#include <direct.h>
+static void make_dir(const std::string& d) { _mkdir(d.c_str()); }
+#else
+#include <sys/stat.h>
+static void make_dir(const std::string& d) { mkdir(d.c_str(), 0755); }
+#endif
+
+// plain strings, not std::filesystem: that needs macOS 10.15, the libraries don't
+static bool exists(const std::string& path) {
+    std::ifstream f(path);
+    return f.good();
+}
 using mi::Rate;
 
 static const double SR = 48000;
@@ -43,7 +54,7 @@ static std::vector<Event> every(int n, double step, std::function<void(mi::Unit&
     return ev;
 }
 
-static void wav(const fs::path& path, const std::vector<std::vector<float>>& ch) {
+static void wav(const std::string& path, const std::vector<std::vector<float>>& ch) {
     uint32_t n = (uint32_t)ch[0].size(), nc = (uint32_t)ch.size(), bytes = n * nc * 2;
     std::ofstream f(path, std::ios::binary);
     auto u32 = [&](uint32_t v) { f.write((const char*)&v, 4); };
@@ -59,7 +70,7 @@ static void wav(const fs::path& path, const std::vector<std::vector<float>>& ch)
 }
 
 int main(int argc, char** argv) {
-    fs::path dir = argc > 1 ? argv[1] : "build/lib";
+    std::string dir = argc > 1 ? argv[1] : "build/lib";
     std::vector<std::string> only(argv + std::min(argc, 2), argv + argc);
 
     std::vector<Case> cases = {
@@ -75,17 +86,17 @@ int main(int argc, char** argv) {
          {{0, [](mi::Unit& u) { u.set("gate", 1); }}, {1.5, [](mi::Unit& u) { u.set("gate", 0); }}}},
     };
 
-    fs::create_directories(dir / "wav");
+    make_dir(dir + "/wav");
     int fail = 0, tested = 0;
     for (auto& c : cases) {
         if (!only.empty() && std::find(only.begin(), only.end(), c.name) == only.end()) continue;
-        fs::path file = dir / mi::libraryFile(c.name);
-        if (!fs::exists(file)) {
-            printf("skip %s: no %s\n", c.name.c_str(), file.string().c_str());
+        std::string file = dir + "/" + mi::libraryFile(c.name);
+        if (!exists(file)) {
+            printf("skip %s: no %s\n", c.name.c_str(), file.c_str());
             continue;
         }
         mi::Library lib;
-        if (!lib.open(file.string(), c.name)) {
+        if (!lib.open(file, c.name)) {
             printf("FAIL %s: %s\n", c.name.c_str(), lib.error.c_str());
             fail = 1;
             continue;
@@ -126,12 +137,12 @@ int main(int argc, char** argv) {
         double rms = std::sqrt(sum / (out.size() * out[0].size()));
         bool ok = !bad && rms > 1e-4 && peak < 20;
         if (!ok) fail = 1;
-        wav(dir / "wav" / (c.name + ".wav"), out);
+        wav(dir + "/wav/" + c.name + ".wav", out);
         printf("%s %-11s rms %.4f peak %.3f%s  %.1f%% of real time\n", ok ? "ok  " : "FAIL", c.name.c_str(), rms, peak,
                bad ? (" " + std::to_string(bad) + " non-finite").c_str() : "", ms / (secs * 1000) * 100);
     }
     if (!tested) {
-        printf("no libraries found in %s\n", dir.string().c_str());
+        printf("no libraries found in %s\n", dir.c_str());
         return 1;
     }
     return fail;

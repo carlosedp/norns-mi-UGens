@@ -26,7 +26,8 @@ platform: `mi-UGens-native-linux-x86_64.tar.gz`, `mi-UGens-native-macos-universa
 `mi-UGens-native/`: `lib/` with the libraries, `mi_ugens.hpp` to load and run them, this README
 and `BUILDINFO` (the mi-UGens commit it was built from).
 
-Or build it for your machine (cmake and a C++17 compiler; on Windows, MSVC from Git Bash):
+Or build it for your machine (cmake and a C++17 compiler; on Windows, Visual Studio with its
+clang tools, from Git Bash: MiRipples needs clang-cl):
 
 ```
 ./build.sh --lib --pr 24     # PR 24 adds MiBeads

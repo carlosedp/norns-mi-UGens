@@ -45,8 +45,8 @@ Build:
                      in the $EMSDK_IMAGE container
   --lib              build native shared libraries for this machine instead, for
                      programs that aren't SuperCollider (see native/README.md):
-                     Linux, macOS (universal) or Windows (MSVC, from Git Bash);
-                     needs cmake and a C++17 compiler
+                     Linux, macOS (universal) or Windows (Visual Studio with its
+                     clang-cl, from Git Bash); needs cmake and a C++17 compiler
   --jobs N           parallel build jobs (default: all cores)
   --engine NAME      container engine: podman or docker (default: auto)
   --work DIR         scratch dir for sources and build tree (default: ./work)
@@ -170,7 +170,9 @@ if ((LIB)); then
   OUT=$PKG/mi-UGens-native
   log "Building native libraries ($OS-$ARCH)"
   rm -rf "$BUILD" "$PKG"
-  cmake -S "$HERE/native" -B "$BUILD" -DCMAKE_BUILD_TYPE=Release -DMI_SRC="$SRC" >/dev/null
+  gen=()
+  [[ $OS == windows ]] && gen=(-T ClangCL)  # clang-cl: MiRipples' VCV Rack code is GCC/clang only
+  cmake -S "$HERE/native" -B "$BUILD" -DCMAKE_BUILD_TYPE=Release -DMI_SRC="$SRC" ${gen[@]+"${gen[@]}"} >/dev/null
   cmake --build "$BUILD" --config Release -j "${JOBS:-$(cores)}"
   log "Testing"
   "$BUILD/mi-test" "$BUILD/lib"

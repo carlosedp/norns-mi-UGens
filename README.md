@@ -179,8 +179,9 @@ to turn a SynthDef into nodes.
 ### For plugins and apps
 
 `./build.sh --lib --pr 24` builds the same seven as native shared libraries for the machine it
-runs on (Linux, macOS universal, or Windows with MSVC from Git Bash; needs cmake and a C++17
-compiler), tests each by rendering it (`mi-test`), and packages them with `mi_ugens.hpp`.
+runs on (Linux, macOS universal, or Windows with Visual Studio's clang-cl, from Git Bash; needs
+cmake and a C++17 compiler), tests each by rendering it (`mi-test`), and packages them with
+`mi_ugens.hpp`.
 [native/README.md](native/README.md) has the C++ and C APIs.
 
 ## Credits and license

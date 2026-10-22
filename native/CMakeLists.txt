@@ -38,10 +38,6 @@ endif()
 
 add_subdirectory("${MI_SRC}" mi-UGens EXCLUDE_FROM_ALL)
 
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|amd64" AND NOT MSVC AND NOT APPLE)
-  set(X86 ON)
-endif()
-
 foreach(u IN LISTS MI_UGENS)
   target_sources(${u} PRIVATE "${SHIM}/glue.cpp")
   target_include_directories(${u} PRIVATE "${SHIM}/include/plugin_interface")
@@ -51,11 +47,16 @@ foreach(u IN LISTS MI_UGENS)
     LIBRARY_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/lib"
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
     RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/lib")
-  # Ripples includes VCV Rack's SSE vector code (simde on ARM)
-  if(u STREQUAL "MiRipples" AND X86)
-    target_compile_options(${u} PRIVATE -msse4.1)
-  elseif(u STREQUAL "MiRipples" AND APPLE)
-    target_compile_options(${u} PRIVATE "SHELL:-Xarch_x86_64 -msse4.1")  # universal: x86_64 half only
+  # Ripples includes VCV Rack's SSE vector code (simde on ARM), written for GCC and clang: on
+  # Windows it needs clang-cl (build.sh picks the ClangCL toolset), as MSVC can't parse it
+  if(u STREQUAL "MiRipples")
+    if(APPLE)
+      target_compile_options(${u} PRIVATE "SHELL:-Xarch_x86_64 -msse4.1")  # universal: x86_64 half only
+    elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|amd64" AND CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+      target_compile_options(${u} PRIVATE -msse4.1)
+    elseif(MSVC)
+      message(WARNING "MiRipples needs clang-cl on Windows: configure with -T ClangCL")
+    endif()
   endif()
   if(NOT MSVC AND NOT APPLE)
     # no surprises from the host's own symbols, or from libstdc++ versions
