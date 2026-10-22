@@ -1,4 +1,5 @@
-// The C API a wasm build of one mi-UGen exports to JavaScript.
+// The C API one mi-UGen exports: to JavaScript from a wasm build, or from a
+// native shared library (native/, one per UGen, loaded with dlopen/LoadLibrary).
 //
 //   u = mi_new(sampleRate, bufLength, numInputs, numOutputs)
 //   mi_set_rate(u, i, rate)   per input: 0 scalar, 1 control, 2 audio (as INRATE)
@@ -11,9 +12,25 @@
 // and scalar inputs only use element 0, as in scsynth.
 #include "SC_PlugIn.h"
 
+#if defined(_WIN32)
+#define EXPORT extern "C" __declspec(dllexport)
+#else
 #define EXPORT extern "C" __attribute__((used, visibility("default")))
+#endif
 
+#ifdef __EMSCRIPTEN__
 extern "C" void mi_log(const char* msg);  // provided by the host
+#else
+// natively the host may hand over its own logger (mi_set_log); stderr until then
+#include <cstdio>
+typedef void (*MiLogFunc)(const char* msg);
+static MiLogFunc g_log;
+static void mi_log(const char* msg) {
+    if (g_log) g_log(msg);
+    else fprintf(stderr, "%s\n", msg);
+}
+EXPORT void mi_set_log(MiLogFunc log) { g_log = log; }
+#endif
 
 static size_t g_size;
 static UnitCtorFunc g_ctor;

@@ -1,9 +1,11 @@
 // A stand-in for SuperCollider's SC_PlugIn.h, just big enough for the mi-UGens
-// wrappers to compile unchanged into WebAssembly (see wasm/README.md).
+// wrappers to compile unchanged into WebAssembly (see wasm/README.md) or into
+// native shared libraries (see native/README.md).
 //
 // The real header describes scsynth's world; here a "unit" is driven by
-// glue.cpp from JavaScript: the host fills the input buffers, calls next, and
-// reads the outputs. Only what the wrappers touch is defined.
+// glue.cpp from its host (JavaScript, or a native program): the host fills the
+// input buffers, calls next, and reads the outputs. Only what the wrappers
+// touch is defined.
 #pragma once
 
 #include <algorithm>

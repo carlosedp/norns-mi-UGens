@@ -97,6 +97,11 @@ any modern browser in an AudioWorklet, with no dependencies. Handy for a demo of
 a web instrument, or tuning a SynthDef without the device.
 [wasm/README.md](wasm/README.md) shows how to use them.
 
+**In a plugin or an app:** the same seven also come as native libraries for Linux, macOS
+(universal) and Windows, `mi-UGens-native-<os>-<arch>.tar.gz`, with a header-only C++ loader that
+runs them the way scsynth does. For audio plugins, standalone instruments, offline rendering.
+[native/README.md](native/README.md) shows how to use them.
+
 ## Things to keep in mind
 
 - **CPU.** The CM3 in norns is a 1.2 GHz quad-core. Elements, Rings and Beads are heavy: a script
@@ -137,7 +142,9 @@ a repo, ref and PRs, and download the tarball from the run's artifacts. Pushing 
 the defaults in the workflow (currently upstream + PR 24) and publishes a release, with the
 tarball under the tag's name (`mi-UGens-norns-v1.0.0.tar.gz`) and under the fixed name
 `mi-UGens-norns.tar.gz` that installers fetch from the latest release. The WebAssembly build
-goes alongside, as `mi-UGens-wasm-v1.0.0.tar.gz` and `mi-UGens-wasm.tar.gz`.
+goes alongside, as `mi-UGens-wasm-v1.0.0.tar.gz` and `mi-UGens-wasm.tar.gz`, and so do the
+native libraries, built on Linux, macOS and Windows runners (`mi-UGens-native-linux-x86_64.tar.gz`,
+`-macos-universal`, `-windows-x86_64`, each also under the tag's name).
 
 ### How it works
 
@@ -168,6 +175,13 @@ Elements) as WebAssembly instead, to play in a web page, in an AudioWorklet: the
 norns runs, not an imitation. `work/out-wasm/demo.html` plays them, and
 [wasm/README.md](wasm/README.md) has the details: how it's built, the JavaScript API, and how
 to turn a SynthDef into nodes.
+
+### For plugins and apps
+
+`./build.sh --lib --pr 24` builds the same seven as native shared libraries for the machine it
+runs on (Linux, macOS universal, or Windows with MSVC from Git Bash; needs cmake and a C++17
+compiler), tests each by rendering it (`mi-test`), and packages them with `mi_ugens.hpp`.
+[native/README.md](native/README.md) has the C++ and C APIs.
 
 ## Credits and license
 
