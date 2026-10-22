@@ -24,6 +24,9 @@
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
+#ifndef NOMINMAX
+#define NOMINMAX  // windows.h's min/max macros would break std::min/std::max in every includer
+#endif
 #include <windows.h>
 #else
 #include <dlfcn.h>
